@@ -1,3 +1,9 @@
+from dotenv import load_dotenv
+
+# Load environment variables from .env file at startup
+# This MUST be done before importing any other application modules that need them.
+load_dotenv()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from router import router

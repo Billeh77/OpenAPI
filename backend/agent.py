@@ -1,6 +1,8 @@
 import json, textwrap, subprocess, tempfile, sys
 from pathlib import Path
 from jinja2 import Template
+import llm
+import rag
 
 # 1️⃣ Very-naïve intent → API classifier (keyword match for MVP)
 API_MAP = {
@@ -30,31 +32,83 @@ def build_code(api_name:str, user_query:str) -> str:
     tpl = Template(tpl_path.read_text())
     return tpl.render(query=user_query)
 
-# 3️⃣ Execute generated python safely in temp subprocess
-def run_code(code:str) -> str:
-    # We'll use a temporary file to store and execute the code
+MAX_RETRIES = 2
+
+def run_code(code: str) -> str:
+    """Executes a string of Python code and returns its stdout and stderr."""
     with tempfile.NamedTemporaryFile("w", delete=False, suffix=".py", encoding='utf-8') as tf:
         tf.write(code)
         temp_filename = tf.name
     
     try:
-        # Execute the temporary file using the same python interpreter
         proc = subprocess.run(
             [sys.executable, temp_filename], 
             capture_output=True, 
             text=True, 
-            timeout=10,
-            check=False # Do not raise exception on non-zero exit codes
+            timeout=15, # Increased timeout for potentially complex code
+            check=False 
         )
         
-        # Combine stdout and stderr
-        output = proc.stdout
-        if proc.stderr:
-            output += f"\nSTDERR:\n{proc.stderr}"
-            
-        return output
+        if proc.returncode != 0:
+            # If there's a non-zero exit code, we treat it as an error
+            return f"Error executing code:\nExit Code: {proc.returncode}\n--- STDOUT ---\n{proc.stdout}\n--- STDERR ---\n{proc.stderr}"
+        
+        return proc.stdout
 
     finally:
-        # Clean up the temporary file
         import os
-        os.unlink(temp_filename) 
+        os.unlink(temp_filename)
+
+def handle_query(user_query: str) -> dict:
+    """
+    Handles a user query by retrieving relevant APIs, generating code,
+    executing it, and retrying on failure.
+    """
+    print(f"\n--- Handling query: {user_query} ---")
+    
+    # 1. Retrieve relevant API documentation
+    try:
+        retrieved_docs = rag.retrieve(user_query)
+        if not retrieved_docs:
+            return {"error": "Could not find any relevant API documentation."}
+    except Exception as e:
+        print(f"Error during RAG retrieval: {e}")
+        return {"error": f"Failed to retrieve API docs: {e}"}
+
+    # 2. Generate initial code
+    try:
+        code = llm.generate_code(user_query, retrieved_docs)
+    except Exception as e:
+        print(f"Error during code generation: {e}")
+        return {"error": f"Failed to generate code: {e}"}
+
+    # 3. Execute code with retry logic
+    output = ""
+    for attempt in range(MAX_RETRIES + 1):
+        print(f"--- Attempt {attempt + 1} ---\nGenerated Code:\n{code}\n---")
+        output = run_code(code)
+        
+        # Check if the output indicates an error
+        if "Error executing code:" not in output:
+            print("--- Code executed successfully ---")
+            return {"code": code, "result": output}
+        
+        # If it's the last attempt, return the error
+        if attempt >= MAX_RETRIES:
+            print("--- Max retries reached. Returning last error. ---")
+            break
+
+        # If there's an error, try to fix the code
+        try:
+            code = llm.generate_code_with_retry(
+                old_code=code, 
+                error=output, 
+                user_query=user_query,
+                retrieved_docs=retrieved_docs
+            )
+        except Exception as e:
+            print(f"Error during code retry generation: {e}")
+            return {"error": f"Failed to generate retry code: {e}", "code": code, "result": output}
+
+    # After loop, return the last result (which will be an error)
+    return {"code": code, "result": output} 

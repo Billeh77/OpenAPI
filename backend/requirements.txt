@@ -3,4 +3,7 @@ uvicorn
 httpx
 jinja2
 python-dotenv
-openai 
+openai
+anthropic
+pinecone
+pyyaml 
