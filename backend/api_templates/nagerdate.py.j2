@@ -1,0 +1,28 @@
+import httpx, json, re
+from datetime import datetime
+
+# Crude parsing for year and country code (e.g., US, FR, DE)
+year = str(datetime.now().year)
+country_code = "US"
+
+year_matches = re.findall(r"\b(20\d{2})\b", "{{ query }}")
+if year_matches:
+    year = year_matches[0]
+
+# Look for a two-letter uppercase code
+country_code_matches = re.findall(r"\b([A-Z]{2})\b", "{{ query }}")
+if country_code_matches:
+    country_code = country_code_matches[-1]
+
+print(f"Fetching public holidays for {country_code} in {year}...")
+
+try:
+    resp = httpx.get(f"https://date.nager.at/api/v3/PublicHolidays/{year}/{country_code}", timeout=10)
+    resp.raise_for_status()
+    print(json.dumps(resp.json(), indent=2))
+except httpx.HTTPStatusError as e:
+    print(json.dumps({"error": f"HTTP error: {e.response.status_code}. Is '{country_code}' a valid country code?", "details": str(e)}, indent=2))
+except httpx.RequestError as e:
+    print(json.dumps({"error": f"An error occurred while requesting data: {str(e)}"}, indent=2))
+except json.JSONDecodeError:
+    print(json.dumps({"error": "Failed to decode JSON response", "content": resp.text}, indent=2)) 

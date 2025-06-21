@@ -1,0 +1,14 @@
+import httpx, json
+
+print("Fetching a random activity for when you're bored...")
+
+try:
+    resp = httpx.get("https://www.boredapi.com/api/activity", timeout=5)
+    resp.raise_for_status()
+    print(json.dumps(resp.json(), indent=2))
+except httpx.HTTPStatusError as e:
+    print(json.dumps({"error": f"HTTP error occurred: {e.response.status_code}", "details": str(e)}, indent=2))
+except httpx.RequestError as e:
+    print(json.dumps({"error": f"An error occurred while requesting data: {str(e)}"}, indent=2))
+except json.JSONDecodeError:
+    print(json.dumps({"error": "Failed to decode JSON response", "content": resp.text}, indent=2)) 

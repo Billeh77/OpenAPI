@@ -1,0 +1,17 @@
+import httpx, json
+
+print("Fetching a random piece of advice...")
+
+try:
+    resp = httpx.get("https://api.adviceslip.com/advice", timeout=5)
+    resp.raise_for_status()
+    # The response is {'slip': {'id': 1, 'advice': '...'}}, so we parse it.
+    data = resp.json()
+    formatted_response = {"advice": data.get("slip", {}).get("advice", "No advice found.")}
+    print(json.dumps(formatted_response, indent=2))
+except httpx.HTTPStatusError as e:
+    print(json.dumps({"error": f"HTTP error occurred: {e.response.status_code}", "details": str(e)}, indent=2))
+except httpx.RequestError as e:
+    print(json.dumps({"error": f"An error occurred while requesting data: {str(e)}"}, indent=2))
+except json.JSONDecodeError:
+    print(json.dumps({"error": "Failed to decode JSON response", "content": resp.text}, indent=2)) 

@@ -1,0 +1,26 @@
+import httpx, json, re
+
+# Crude parsing for a country name from the query; default to "france"
+country = "france"
+# A simple regex to find a potential country name (often capitalized)
+matches = re.findall(r"\b[A-Z][a-zA-Z\s]+\b", "{{ query }}")
+# Or just grab the last word if no caps found
+if matches:
+    country = matches[-1].strip()
+else:
+    words = "{{ query }}".split()
+    if len(words) > 1:
+        country = words[-1]
+
+print(f"Fetching information for country: {country}...")
+
+try:
+    resp = httpx.get(f"https://restcountries.com/v3.1/name/{country}", timeout=5)
+    resp.raise_for_status()
+    print(json.dumps(resp.json(), indent=2))
+except httpx.HTTPStatusError as e:
+    print(json.dumps({"error": f"HTTP error occurred: {e.response.status_code}", "details": f"Could not find country '{country}'"}, indent=2))
+except httpx.RequestError as e:
+    print(json.dumps({"error": f"An error occurred while requesting data: {str(e)}"}, indent=2))
+except json.JSONDecodeError:
+    print(json.dumps({"error": "Failed to decode JSON response", "content": resp.text}, indent=2)) 

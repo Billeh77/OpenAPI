@@ -1,0 +1,27 @@
+import httpx, json
+
+# Simple logic to find a cryptocurrency name in the query. Defaults to bitcoin.
+query_lower = "{{ query }}".lower()
+ids = "bitcoin" # default
+if "ethereum" in query_lower:
+    ids = "ethereum"
+elif "dogecoin" in query_lower:
+    ids = "dogecoin"
+elif "solana" in query_lower:
+    ids = "solana"
+
+print(f"Fetching price for: {ids}...")
+
+try:
+    resp = httpx.get(
+        f"https://api.coingecko.com/api/v3/simple/price?ids={ids}&vs_currencies=usd", 
+        timeout=5
+    )
+    resp.raise_for_status()
+    print(json.dumps(resp.json(), indent=2))
+except httpx.HTTPStatusError as e:
+    print(json.dumps({"error": f"HTTP error occurred: {e.response.status_code}", "details": str(e)}, indent=2))
+except httpx.RequestError as e:
+    print(json.dumps({"error": f"An error occurred while requesting data: {str(e)}"}, indent=2))
+except json.JSONDecodeError:
+    print(json.dumps({"error": "Failed to decode JSON response", "content": resp.text}, indent=2)) 

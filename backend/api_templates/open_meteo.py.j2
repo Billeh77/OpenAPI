@@ -1,0 +1,23 @@
+import httpx, json, re
+
+# Very crude parsing for latitude/longitude from user_query; default NYC
+lat, lon = 40.7, -74.0
+matches = re.findall(r"(-?\d+\.?\d*),\s*(-?\d+\.?\d*)", "{{ query }}")
+if matches:
+    lat, lon = map(float, matches[0])
+
+print(f"Fetching weather for latitude={lat}, longitude={lon}...")
+
+try:
+    resp = httpx.get(
+        f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current_weather=true", 
+        timeout=5
+    )
+    resp.raise_for_status()
+    print(json.dumps(resp.json(), indent=2))
+except httpx.HTTPStatusError as e:
+    print(json.dumps({"error": f"HTTP error occurred: {e.response.status_code}", "details": str(e)}, indent=2))
+except httpx.RequestError as e:
+    print(json.dumps({"error": f"An error occurred while requesting data: {str(e)}"}, indent=2))
+except json.JSONDecodeError:
+    print(json.dumps({"error": "Failed to decode JSON response", "content": resp.text}, indent=2)) 

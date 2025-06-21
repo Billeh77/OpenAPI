@@ -1,0 +1,21 @@
+import httpx, json, re
+
+# Crude parsing for a number from the query; default to 42
+number = "42" # Default to a sensible number
+matches = re.findall(r"\d+", "{{ query }}")
+if matches:
+    number = matches[0]
+
+print(f"Fetching a trivia fact for the number: {number}...")
+
+try:
+    # The API returns trivia for a number. We add `json` to the path.
+    resp = httpx.get(f"http://numbersapi.com/{number}/trivia?json", timeout=5)
+    resp.raise_for_status()
+    print(json.dumps(resp.json(), indent=2))
+except httpx.HTTPStatusError as e:
+    print(json.dumps({"error": f"HTTP error occurred: {e.response.status_code}", "details": str(e)}, indent=2))
+except httpx.RequestError as e:
+    print(json.dumps({"error": f"An error occurred while requesting data: {str(e)}"}, indent=2))
+except json.JSONDecodeError:
+    print(json.dumps({"error": "Failed to decode JSON response", "content": resp.text}, indent=2)) 

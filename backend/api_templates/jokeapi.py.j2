@@ -1,0 +1,31 @@
+import httpx, json
+
+print("Fetching a random joke...")
+
+try:
+    # This API returns a joke in two parts (setup and delivery) or a single part.
+    resp = httpx.get("https://v2.jokeapi.dev/joke/Any", timeout=5)
+    resp.raise_for_status()
+    
+    joke_data = resp.json()
+    
+    # We'll re-format the output slightly to make it more readable
+    if joke_data.get("type") == "twopart":
+        formatted_joke = {
+            "joke": f"{joke_data['setup']}\n... {joke_data['delivery']}",
+            "category": joke_data.get("category")
+        }
+    else:
+        formatted_joke = {
+            "joke": joke_data.get("joke"),
+            "category": joke_data.get("category")
+        }
+        
+    print(json.dumps(formatted_joke, indent=2))
+
+except httpx.HTTPStatusError as e:
+    print(json.dumps({"error": f"HTTP error occurred: {e.response.status_code}", "details": str(e)}, indent=2))
+except httpx.RequestError as e:
+    print(json.dumps({"error": f"An error occurred while requesting data: {str(e)}"}, indent=2))
+except json.JSONDecodeError:
+    print(json.dumps({"error": "Failed to decode JSON response", "content": resp.text}, indent=2)) 
