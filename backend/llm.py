@@ -81,17 +81,18 @@ except Exception as e:
 
 # A more explicit and forceful system prompt to guide the LLM's output.
 SYSTEM_PROMPT = """
-You are an expert Python programmer. Your primary task is to write a single, self-contained Python script based on a user's query and provided API documentation.
+You are an expert DevOps engineer who writes flawless, production-quality Dockerfiles. Your sole purpose is to containerize a Model Context Protocol (MCP) server based on its documentation.
 
-**CRITICAL RULES:**
-1.  **OUTPUT ONLY PYTHON CODE.** Your final response must contain *only* the Python code, and nothing else.
-2.  Do **NOT** include the `<thinking>` block, markdown fences (```python), or any other explanatory text in your final response. The response should be immediately executable as a Python script.
-3.  The script must use the `httpx` and `json` libraries.
-4.  The script's final output to standard output **MUST** be a single, well-formed JSON object.
-5.  Implement comprehensive error handling using a `try...except` block to catch potential exceptions and print the error message as a JSON object (e.g., `print(json.dumps({"error": "message"}))`).
-6.  Use the provided API documentation (in JSON format) to understand how to call the API, what parameters are needed, and how to construct the URL. Extract any necessary parameters from the user's query.
+**CRITICAL INSTRUCTIONS:**
+1.  **OUTPUT ONLY THE DOCKERFILE CONTENT.** Your entire response must be the raw, valid text of a Dockerfile. Do NOT include any other text, markdown fences (```dockerfile), or explanations.
+2.  **START FROM A SUITABLE BASE IMAGE.** Use a specific, slim base image (e.g., `python:3.10-slim-bookworm` or `node:18-slim`).
+3.  **INSTALL SYSTEM DEPENDENCIES.** Use `apt-get` to install necessary tools like `git`.
+4.  **CLONE THE REPOSITORY.** Use `git clone` with the provided `repository_url`.
+5.  **INSTALL APPLICATION DEPENDENCIES.** Use the correct package manager (`pip` or `npm`).
+6.  **EXPOSE PORT 8080.** All MCP servers should be configured to run on port 8080 inside the container.
+7.  **SET THE `CMD`.** The final command should start the MCP server, typically with flags to listen on `0.0.0.0:8080`.
 
-First, think step-by-step about the user's request and the provided documentation inside `<thinking>` tags. Then, provide the complete, runnable Python script as your final answer.
+First, think step-by-step inside `<thinking>` tags about the required layers. Then, provide the complete, runnable Dockerfile as your final answer.
 """
 
 def _extract_code(response_text: str) -> str:
@@ -111,20 +112,19 @@ def _extract_code(response_text: str) -> str:
 
     return code.strip()
 
-def generate_code(user_query: str, retrieved_docs: list[dict]) -> str:
-    """Generates Python code based on the user query and retrieved structured API docs."""
+def generate_dockerfile(user_query: str, retrieved_docs: list[dict]) -> str:
+    """Generates Dockerfile based on the user query and retrieved MCP server docs."""
     if not client:
         raise ValueError("Anthropic client is not initialized. Please set the CLAUDE_API_KEY.")
 
     docs_json_str = json.dumps(retrieved_docs, indent=2)
     
-    prompt = f"""<user_query>
-{user_query}
-</user_query>
-<api_documentation>
+    prompt = f"""
+    Generate a Dockerfile to deploy the requested MCP server.
+    User's Request: {user_query}
+    MCP Server Documentation:
 {docs_json_str}
-</api_documentation>
-"""
+    """
 
     message = client.messages.create(
         model="claude-3-5-sonnet-20240620",
@@ -137,40 +137,25 @@ def generate_code(user_query: str, retrieved_docs: list[dict]) -> str:
     return _extract_code(message)
 
 
-def generate_code_with_retry(old_code: str, error: str, user_query: str, retrieved_docs: list[dict]) -> str:
-    """Attempts to fix broken code given the error it produced and the original context."""
+def generate_dockerfile_with_retry(old_dockerfile: str, error: str, user_query: str, retrieved_docs: list[dict]) -> str:
+    """Attempts to fix broken Dockerfile given the error it produced and the original context."""
     if not client:
         raise ValueError("Anthropic client is not initialized. Please set the CLAUDE_API_KEY.")
 
-    print(f"--- Code failed. Retrying with error: {error} ---")
+    print(f"--- Dockerfile failed. Retrying with error: {error} ---")
     
     docs_json_str = json.dumps(retrieved_docs, indent=2)
     
     prompt = f"""
-The previous attempt to write a Python script failed. Here is all the context to fix it.
-
-**Original User Query:**
-<user_query>
-{user_query}
-</user_query>
-
-**API Documentation Provided:**
-<api_documentation>
+The previous Dockerfile build failed. Analyze the error and fix the Dockerfile.
+Original Request: {user_query}
+Server Documentation:
 {docs_json_str}
-</api_documentation>
-
-**The Code That Failed:**
-<original_code>
-{old_code}
-</original_code>
-
-**The Error It Produced:**
-<error_traceback>
+Failed Dockerfile:
+{old_dockerfile}
+Build Error:
 {error}
-</error_traceback>
-
-Please analyze the original query, the documentation, the failed code, and the error. Provide the fully corrected, complete Python script.
-Think step-by-step about what went wrong and how to fix it inside the <thinking> tags, then provide ONLY the corrected Python code.
+Provide ONLY the corrected, complete Dockerfile text.
 """
     
     message = client.messages.create(

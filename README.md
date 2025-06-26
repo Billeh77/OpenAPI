@@ -1,8 +1,13 @@
-# Universal API Demo
+# Universal MCP Adapter
 
-This project is a proof-of-concept for an "API for APIs". It's a full-stack application with a FastAPI backend and a React frontend that allows a user to make natural language queries, which are then translated into live API calls by an agentic backend.
+This project is a proof-of-concept for an intelligent MCP (Model Context Protocol) server deployment system. It's a full-stack application with a FastAPI backend and a React frontend that allows users to make natural language requests for MCP servers, which are then automatically containerized and deployed using Docker.
 
 ## 🚀 How to Run the Project
+
+**Prerequisites:**
+- Docker must be installed and running on your system
+- Python 3.10+ for the backend
+- Node.js 18+ for the frontend
 
 You will need two separate terminal windows to run both the backend server and the frontend application.
 
@@ -50,14 +55,14 @@ You should see the chat interface, ready to accept your queries!
 
 ## 💡 Example Queries
 
-Try asking things like:
-- "What's the weather in New York?" or "weather in 52.5, 13.4"
-- "Tell me about France"
-- "What's the price of bitcoin?"
-- "Tell me a joke"
-- "I'm bored"
-- "Give me a cat fact"
-- "I need some advice"
-- "Tell me about the number 100"
-- "What are the public holidays in Germany this year?" (e.g., "holidays in DE 2024")
-- "What is my IP address?" 
+Try asking for MCP servers like:
+- "I need a tool to manage files"
+- "I want to work with Git repositories" 
+- "Set up a filesystem server for me"
+- "Deploy a Git MCP server"
+
+The system will:
+1. Find the most relevant MCP server using semantic search
+2. Generate a Dockerfile to containerize it
+3. Build and run the container automatically
+4. Provide you with a connection URL to access the server 
