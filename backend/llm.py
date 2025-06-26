@@ -79,20 +79,117 @@ except Exception as e:
 </example>
 """
 
-# A more explicit and forceful system prompt to guide the LLM's output.
+# Comprehensive system prompt with deep MCP knowledge
 SYSTEM_PROMPT = """
-You are an expert DevOps engineer who writes flawless, production-quality Dockerfiles. Your sole purpose is to containerize a Model Context Protocol (MCP) server based on its documentation.
+You are an expert DevOps engineer and MCP protocol specialist. You have comprehensive knowledge of the Model Context Protocol (MCP), its architecture, implementation patterns, and containerization requirements.
 
-**CRITICAL INSTRUCTIONS:**
-1.  **OUTPUT ONLY THE DOCKERFILE CONTENT.** Your entire response must be the raw, valid text of a Dockerfile. Do NOT include any other text, markdown fences (```dockerfile), or explanations.
-2.  **START FROM A SUITABLE BASE IMAGE.** Use a specific, slim base image (e.g., `python:3.10-slim-bookworm` or `node:18-slim`).
-3.  **INSTALL SYSTEM DEPENDENCIES.** Use `apt-get` to install necessary tools like `git`.
-4.  **CLONE THE REPOSITORY.** Use `git clone` with the provided `repository_url`.
-5.  **INSTALL APPLICATION DEPENDENCIES.** Use the correct package manager (`pip` or `npm`).
-6.  **EXPOSE PORT 8080.** All MCP servers should be configured to run on port 8080 inside the container.
-7.  **SET THE `CMD`.** The final command should start the MCP server, typically with flags to listen on `0.0.0.0:8080`.
+**DEEP MCP PROTOCOL KNOWLEDGE:**
 
-First, think step-by-step inside `<thinking>` tags about the required layers. Then, provide the complete, runnable Dockerfile as your final answer.
+**What is MCP?**
+Model Context Protocol (MCP) is an open standard that enables AI assistants to securely connect to external data sources and tools. MCP servers provide "tools", "resources", and "prompts" that AI assistants can discover and use.
+
+**MCP Architecture:**
+- **Client-Server Model**: AI assistant (client) connects to MCP server
+- **Communication**: JSON-RPC 2.0 over stdio (stdin/stdout), NOT HTTP
+- **Protocol Flow**: Initialize → Discover Capabilities → Use Tools
+- **Bidirectional**: Both client and server can send requests
+
+**MCP Protocol Handshake:**
+1. Client sends "initialize" request with protocol version and capabilities
+2. Server responds with its capabilities (tools, resources, prompts)
+3. Client sends "initialized" notification
+4. Server is ready to handle tool calls, resource reads, etc.
+
+**MCP Message Types:**
+- `initialize` - Protocol handshake
+- `initialized` - Handshake completion notification  
+- `tools/list` - Discover available tools
+- `tools/call` - Execute a specific tool
+- `resources/list` - List available resources
+- `resources/read` - Read a specific resource
+- `prompts/list` - List available prompts
+- `prompts/get` - Get a specific prompt
+
+**MCP Server Implementation Patterns:**
+- **Entry Points**: MCP servers are CLI applications with entry points like `mcp-server-git`
+- **Installation**: Usually via `pip install .` from pyproject.toml
+- **Dependencies**: Common deps include `mcp`, `pydantic`, `click`, `asyncio`
+- **Repository Structure**: Often in monorepos like `modelcontextprotocol/servers`
+
+**Critical MCP Deployment Requirements:**
+1. **MCP servers are NOT web services** - they're CLI tools expecting stdin/stdout
+2. **JSON-RPC Protocol** - All communication uses JSON-RPC 2.0 format
+3. **Process Management** - Must run as subprocess with pipe communication
+4. **Protocol Bridge** - Need HTTP-to-MCP bridge for web access
+5. **Proper Initialization** - Must handle MCP handshake sequence
+
+**MCP-to-HTTP Bridge Requirements:**
+- Run MCP server as subprocess with stdin/stdout pipes
+- Implement JSON-RPC client for MCP communication
+- Handle MCP initialization sequence properly
+- Translate HTTP requests to MCP tool calls
+- Provide REST endpoints for tool discovery and execution
+- Handle errors, timeouts, and process management
+
+**CONTEXT & ARCHITECTURE:**
+You are operating within a Universal MCP Adapter system that:
+- Receives natural language requests for MCP functionality (e.g., "I need file management tools")
+- Uses RAG to find relevant MCP servers from a knowledge base
+- Generates Dockerfiles to containerize these MCP servers automatically
+- Builds and runs containers to provide HTTP endpoints for MCP server access
+- Has retry logic that will provide you with previous failed attempts and errors
+
+**MCP SERVER KNOWLEDGE:**
+- MCP servers are typically Python applications that implement the Model Context Protocol
+- They usually have a main.py or server.py entry point
+- Many MCP servers use dependencies like `mcp`, `pydantic`, `httpx`, `asyncio`
+- MCP servers may not have requirements.txt files - you need to analyze the code and install dependencies manually
+- Common MCP server patterns: they listen on stdin/stdout by default, but we need HTTP endpoints
+- MCP servers often need to be wrapped with HTTP servers (like `uvicorn` for FastAPI-based servers)
+
+**COMMON FAILURE SCENARIOS & SOLUTIONS:**
+1. **"No module named 'git.server'"**: MCP servers don't have importable modules - use CLI entry points
+2. **"Could not import module 'server'"**: MCP servers are CLI tools, not web apps - create bridge
+3. **Missing requirements.txt**: Use pyproject.toml with `pip install .` or `uv sync`
+4. **Wrong entry point**: Use the CLI command from pyproject.toml scripts (e.g., `mcp-server-git`)
+5. **MCP servers expecting stdin/stdout**: This is CORRECT - create bridge to handle JSON-RPC protocol
+6. **Missing system dependencies**: Install git, curl, uv as needed
+7. **Port binding issues**: Bridge server must bind to 0.0.0.0:8080
+8. **Protocol mismatch**: MCP uses JSON-RPC over stdio - HTTP bridge is mandatory
+
+**DOCKERFILE GENERATION RULES:**
+1. **OUTPUT ONLY DOCKERFILE CONTENT** - No markdown, no explanations, no thinking blocks in final output
+2. **Use the OFFICIAL Dockerfile approach** - MCP servers often have their own Dockerfiles
+3. **Install system dependencies**: git, curl, uv (modern Python package manager)
+4. **Clone the repository** to /app directory
+5. **Navigate to correct subdirectory** if the MCP server is in a subfolder
+6. **Use the official installation method**:
+   - Check for existing Dockerfile first and adapt it
+   - Use `uv sync` for modern Python packaging
+   - Install with `pip install .` if pyproject.toml exists
+7. **Create MCP-to-HTTP bridge** - MCP servers communicate via stdin/stdout, not HTTP
+8. **Install bridge dependencies**: `pip install fastapi uvicorn asyncio`
+9. **EXPOSE 8080** - this is critical for our system
+10. **Create a bridge script** that runs the MCP server and translates HTTP to MCP protocol
+11. **Use proper CMD** that starts the bridge server on 0.0.0.0:8080
+
+**CRITICAL MCP KNOWLEDGE:**
+- MCP servers are CLI tools with entry points like `mcp-server-git`
+- They communicate via JSON-RPC over stdin/stdout, NOT HTTP
+- You MUST create a bridge that runs the MCP server as subprocess and handles protocol translation
+- The bridge receives HTTP requests and sends JSON-RPC to the MCP server via stdin
+- The bridge reads JSON-RPC responses from the MCP server's stdout and returns HTTP responses
+
+**CHAIN OF THOUGHT PROCESS:**
+Before generating the Dockerfile, think through:
+1. What type of MCP server is this? (filesystem, git, database, etc.)
+2. What's the repository structure? Is the server in a subdirectory?
+3. What dependencies does it likely need based on its functionality?
+4. Does it have standard Python packaging files?
+5. How should it be started to provide HTTP access on port 8080?
+6. What system packages might be needed for its functionality?
+
+Think step-by-step inside `<thinking>` tags, then provide ONLY the Dockerfile content.
 """
 
 def _extract_code(response_text: str) -> str:
@@ -112,58 +209,240 @@ def _extract_code(response_text: str) -> str:
 
     return code.strip()
 
-def generate_dockerfile(user_query: str, retrieved_docs: list[dict]) -> str:
-    """Generates Dockerfile based on the user query and retrieved MCP server docs."""
+
+def _parse_deployment_package(response_text: str) -> dict:
+    """
+    Parses the LLM response to extract deployment package files.
+    Expects JSON format or falls back to extracting individual files.
+    """
+    # Remove thinking blocks
+    response_text = re.sub(r"<thinking>.*?</thinking>", "", response_text, flags=re.DOTALL)
+    
+    # Try to parse as JSON first
+    try:
+        # Look for JSON block
+        json_match = re.search(r"```json\n(.*?)```", response_text, re.DOTALL)
+        if json_match:
+            json_str = json_match.group(1)
+        else:
+            # Try to find JSON object in the response
+            json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(0)
+            else:
+                raise ValueError("No JSON found in response")
+        
+        deployment_files = json.loads(json_str)
+        
+        # Validate required files
+        required_files = ["Dockerfile", "mcp_bridge.py", "requirements.txt", "entrypoint.sh", "health_check.py"]
+        for required_file in required_files:
+            if required_file not in deployment_files:
+                raise ValueError(f"Missing required file: {required_file}")
+        
+        return deployment_files
+        
+    except (json.JSONDecodeError, ValueError) as e:
+        print(f"Failed to parse JSON deployment package: {e}")
+        
+        # Fallback: try to extract individual files from markdown blocks
+        files = {}
+        
+        # Extract Dockerfile
+        dockerfile_match = re.search(r"```dockerfile\n(.*?)```", response_text, re.DOTALL | re.IGNORECASE)
+        if dockerfile_match:
+            files["Dockerfile"] = dockerfile_match.group(1).strip()
+        
+        # Extract Python files
+        python_matches = re.finditer(r"```python\n(.*?)```", response_text, re.DOTALL)
+        for i, match in enumerate(python_matches):
+            if i == 0:
+                files["mcp_bridge.py"] = match.group(1).strip()
+            elif i == 1:
+                files["health_check.py"] = match.group(1).strip()
+        
+        # Extract shell script
+        bash_match = re.search(r"```bash\n(.*?)```", response_text, re.DOTALL)
+        if bash_match:
+            files["entrypoint.sh"] = bash_match.group(1).strip()
+        
+        # Add default files if missing
+        if "requirements.txt" not in files:
+            files["requirements.txt"] = "fastapi==0.104.1\nuvicorn[standard]==0.24.0\npydantic==2.5.0\nhttpx==0.25.2"
+        
+        if "docker-compose.yml" not in files:
+            files["docker-compose.yml"] = "version: '3.8'\nservices:\n  mcp-server:\n    build: .\n    ports:\n      - '8080:8080'"
+        
+        if "README.md" not in files:
+            files["README.md"] = "# MCP Server Deployment\n\nGenerated automatically."
+        
+        # Ensure we have at least a Dockerfile
+        if "Dockerfile" not in files:
+            raise ValueError("Could not extract Dockerfile from LLM response")
+        
+        return files
+
+def generate_deployment_package(user_query: str, retrieved_docs: list[dict]) -> dict:
+    """Generates complete deployment package with multiple files for MCP server."""
     if not client:
         raise ValueError("Anthropic client is not initialized. Please set the CLAUDE_API_KEY.")
 
     docs_json_str = json.dumps(retrieved_docs, indent=2)
     
     prompt = f"""
-    Generate a Dockerfile to deploy the requested MCP server.
+    Generate a COMPLETE deployment package for the requested MCP server. You must generate ALL required files for successful deployment.
+
     User's Request: {user_query}
     MCP Server Documentation:
 {docs_json_str}
+
+    **REQUIRED OUTPUT FORMAT:**
+    Return a JSON object with the following structure:
+    {{
+        "Dockerfile": "# Complete Dockerfile content here",
+        "mcp_bridge.py": "# Complete MCP-to-HTTP bridge implementation",
+        "requirements.txt": "# Bridge dependencies",
+        "entrypoint.sh": "#!/bin/bash\\n# Startup script",
+        "health_check.py": "# Health monitoring script",
+        "docker-compose.yml": "# Docker compose configuration",
+        "README.md": "# Deployment documentation"
+    }}
+
+    **CRITICAL REQUIREMENTS:**
+    1. **Dockerfile**: Must install MCP server, create bridge, expose port 8080
+    2. **mcp_bridge.py**: Complete HTTP-to-MCP bridge using the template I provided
+    3. **requirements.txt**: FastAPI, uvicorn, pydantic, httpx for bridge
+    4. **entrypoint.sh**: Startup script that validates MCP server and starts bridge
+    5. **health_check.py**: HTTP health check for container monitoring
+    6. **docker-compose.yml**: Complete service definition
+    7. **README.md**: Usage documentation with API endpoints
+
+    **MCP BRIDGE IMPLEMENTATION:**
+    The mcp_bridge.py MUST:
+    - Import the MCP bridge template from the codebase
+    - Customize the server_command for the specific MCP server
+    - Handle MCP protocol initialization and tool discovery
+    - Expose HTTP endpoints for tool calling
+    - Include proper error handling and logging
+
+    **DOCKERFILE REQUIREMENTS:**
+    - Use python:3.12-slim-bookworm base image
+    - Install system dependencies (git, curl, build-essential)
+    - Clone MCP server repository
+    - Navigate to correct subdirectory
+    - Install MCP server dependencies (pip install . or uv sync)
+    - Copy ALL bridge files (mcp_bridge.py, requirements.txt, entrypoint.sh, health_check.py)
+    - Install bridge dependencies
+    - Make scripts executable
+    - Expose port 8080
+    - Add health check
+    - Use entrypoint.sh as ENTRYPOINT
+
+    Generate a complete, production-ready deployment package as JSON.
     """
 
     message = client.messages.create(
-        model="claude-3-5-sonnet-20240620",
-        max_tokens=2048,
+        model="claude-3-5-sonnet-20241022",
+        max_tokens=8192,  # Increased for multiple files
         temperature=0.0,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": prompt}]
     ).content[0].text
     
-    return _extract_code(message)
+    return _parse_deployment_package(message)
 
 
-def generate_dockerfile_with_retry(old_dockerfile: str, error: str, user_query: str, retrieved_docs: list[dict]) -> str:
-    """Attempts to fix broken Dockerfile given the error it produced and the original context."""
+def generate_deployment_package_with_retry(old_deployment_files: dict, error: str, user_query: str, retrieved_docs: list[dict], error_history: list = None) -> dict:
+    """Attempts to fix broken deployment package given the error it produced and the original context."""
     if not client:
         raise ValueError("Anthropic client is not initialized. Please set the CLAUDE_API_KEY.")
 
-    print(f"--- Dockerfile failed. Retrying with error: {error} ---")
+    if error_history is None:
+        error_history = []
+
+    print(f"--- Deployment failed. Retrying with error: {error} ---")
     
     docs_json_str = json.dumps(retrieved_docs, indent=2)
+    error_history_str = "\n".join([f"Attempt {i+1}: {err}" for i, err in enumerate(error_history)])
     
     prompt = f"""
-The previous Dockerfile build failed. Analyze the error and fix the Dockerfile.
-Original Request: {user_query}
-Server Documentation:
+**RETRY CONTEXT:**
+You are fixing a FAILED MCP server deployment. The previous attempt failed and you must learn from the specific errors.
+
+**ORIGINAL USER REQUEST:**
+{user_query}
+
+**MCP SERVER DOCUMENTATION:**
 {docs_json_str}
-Failed Dockerfile:
-{old_dockerfile}
-Build Error:
+
+**PREVIOUS FAILED DEPLOYMENT FILES:**
+{json.dumps(old_deployment_files, indent=2)}
+
+**CURRENT ERROR:**
+```
 {error}
-Provide ONLY the corrected, complete Dockerfile text.
+```
+
+**PREVIOUS ERROR HISTORY:**
+{error_history_str}
+
+**CRITICAL ERROR ANALYSIS:**
+You must identify and fix the root cause. Common MCP deployment failures:
+
+1. **MCP Protocol Errors**: 
+   - "No module named 'git.server'" → MCP servers are CLI tools, not importable modules
+   - Use subprocess to run CLI commands like "mcp-server-git"
+   - Don't try to import MCP server code directly
+
+2. **Container Startup Failures**:
+   - "Container failed to start" → Check MCP server binary availability
+   - Ensure proper working directory and file permissions
+   - Verify MCP server can be executed as CLI command
+
+3. **Bridge Implementation Issues**:
+   - Bridge must run MCP server as subprocess with stdin/stdout communication
+   - Implement proper JSON-RPC protocol handling
+   - Handle MCP initialization handshake correctly
+
+4. **Dependency Problems**:
+   - Missing system packages (git, curl, build-essential)
+   - Wrong Python dependencies or versions
+   - MCP server not properly installed
+
+5. **Port Binding Issues**:
+   - Bridge must bind to 0.0.0.0:8080, not localhost
+   - Container health checks must work properly
+
+**REQUIRED OUTPUT FORMAT:**
+Return a JSON object with ALL files needed for successful deployment:
+{{
+    "Dockerfile": "# Fixed Dockerfile addressing the specific error",
+    "mcp_bridge.py": "# Complete working MCP-to-HTTP bridge",
+    "requirements.txt": "# All required dependencies",
+    "entrypoint.sh": "#!/bin/bash\\n# Robust startup script with error checking",
+    "health_check.py": "# Working health check script",
+    "docker-compose.yml": "# Complete service definition",
+    "README.md": "# Updated documentation"
+}}
+
+**BRIDGE IMPLEMENTATION REQUIREMENTS:**
+The mcp_bridge.py must:
+- Use subprocess.Popen to run the actual MCP server CLI command
+- Implement proper JSON-RPC over stdin/stdout communication
+- Handle MCP protocol initialization sequence
+- Provide HTTP endpoints that translate to MCP tool calls
+- Include comprehensive error handling and logging
+- Bind to 0.0.0.0:8080 for container access
+
+Fix the specific error and generate a complete, working deployment package as JSON.
 """
     
     message = client.messages.create(
-        model="claude-3-5-sonnet-20240620",
-        max_tokens=2048,
+        model="claude-3-5-sonnet-20241022",
+        max_tokens=8192,  # Increased for multiple files
         temperature=0.1,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": prompt}]
     ).content[0].text
 
-    return _extract_code(message) 
+    return _parse_deployment_package(message) 

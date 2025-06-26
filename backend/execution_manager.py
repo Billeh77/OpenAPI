@@ -12,10 +12,14 @@ except docker.errors.DockerException:
     client = None
 
 @contextmanager
-def build_and_run_mcp_server(dockerfile_content: str, server_name: str):
+def build_and_run_mcp_server(deployment_files: dict, server_name: str):
     """
-    Builds and runs an MCP server in a Docker container.
+    Builds and runs an MCP server in a Docker container from a complete deployment package.
     This is a context manager to ensure proper cleanup.
+    
+    Args:
+        deployment_files: Dictionary mapping filenames to file contents
+        server_name: Name of the MCP server
     """
     if not client:
         yield None, "Docker client not available.", "error"
@@ -25,9 +29,19 @@ def build_and_run_mcp_server(dockerfile_content: str, server_name: str):
     image_tag = f"mcp-adapter/{server_name}:latest"
 
     with tempfile.TemporaryDirectory() as temp_dir:
-        dockerfile_path = os.path.join(temp_dir, 'Dockerfile')
-        with open(dockerfile_path, 'w') as f:
-            f.write(dockerfile_content)
+        # Write all deployment files to temporary directory
+        for filename, content in deployment_files.items():
+            filepath = os.path.join(temp_dir, filename)
+            
+            # Create subdirectories if needed
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+            
+            with open(filepath, 'w') as f:
+                f.write(content)
+            
+            # Make shell scripts executable
+            if filename.endswith('.sh'):
+                os.chmod(filepath, 0o755)
 
         try:
             print(f"--- Building Docker image: {image_tag} ---")
@@ -39,8 +53,26 @@ def build_and_run_mcp_server(dockerfile_content: str, server_name: str):
             # Run the container, mapping port 8080 to a random available host port
             container = client.containers.run(image_tag, detach=True, ports={'8080/tcp': None})
 
+            # Wait a moment for container to start
+            import time
+            time.sleep(2)
+            
             container.reload() # Refresh state to get port
-            host_port = container.ports['8080/tcp'][0]['HostPort']
+            
+            # Check if container is still running
+            if container.status != 'running':
+                container_logs = container.logs().decode('utf-8')
+                yield None, f"Container failed to start. Logs:\n{container_logs}", "runtime_error"
+                return
+            
+            # Get the mapped port safely
+            port_info = container.ports.get('8080/tcp')
+            if not port_info or len(port_info) == 0:
+                container_logs = container.logs().decode('utf-8')
+                yield None, f"Port 8080 not exposed or mapped. Container logs:\n{container_logs}", "runtime_error"
+                return
+                
+            host_port = port_info[0]['HostPort']
             url = f"http://localhost:{host_port}"
 
             print(f"--- Container '{container.short_id}' for '{server_name}' running at: {url} ---")
@@ -54,8 +86,12 @@ def build_and_run_mcp_server(dockerfile_content: str, server_name: str):
         except Exception as e:
             yield None, str(e), "runtime_error"
         finally:
-            # Cleanup: Stop and remove the container if it was created
-            if container:
-                print(f"--- Cleaning up container {container.short_id}... ---")
-                container.stop()
-                container.remove() 
+            # Note: Container left running for persistent service
+            # Users can manually stop with: docker stop <container_id>
+            if container and container.status != 'running':
+                # Only cleanup if container failed to start
+                print(f"--- Cleaning up failed container {container.short_id}... ---")
+                try:
+                    container.remove()
+                except:
+                    pass 
