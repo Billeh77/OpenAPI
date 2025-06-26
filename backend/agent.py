@@ -1,114 +1,106 @@
-import json, textwrap, subprocess, tempfile, sys
-from pathlib import Path
-from jinja2 import Template
-import llm
 import rag
+import llm
+import execution_manager
 
-# 1️⃣ Very-naïve intent → API classifier (keyword match for MVP)
-API_MAP = {
-    "weather": "open_meteo",
-    "temperature": "open_meteo",
-    "country": "rest_countries",
-    "bitcoin": "coingecko",
-    "crypto": "coingecko",
-    "joke": "jokeapi",
-    "bored": "boredapi",
-    "cat": "catfacts",
-    "advice": "adviceslip",
-    "number": "numbersapi",
-    "holiday": "nagerdate",
-    "ip": "ipify",
-}
+# MCP Adapter Configuration
 
-def pick_api(user_query:str) -> str|None:
-    for k, api in API_MAP.items():
-        if k in user_query.lower():
-            return api
-    return None
+MAX_RETRIES = 3
 
-# 2️⃣ Boilerplate generator
-def build_code(api_name:str, user_query:str) -> str:
-    tpl_path = Path(__file__).parent / "api_templates" / f"{api_name}.py.j2"
-    tpl = Template(tpl_path.read_text())
-    return tpl.render(query=user_query)
 
-MAX_RETRIES = 2
-
-def run_code(code: str) -> str:
-    """Executes a string of Python code and returns its stdout and stderr."""
-    with tempfile.NamedTemporaryFile("w", delete=False, suffix=".py", encoding='utf-8') as tf:
-        tf.write(code)
-        temp_filename = tf.name
-    
-    try:
-        proc = subprocess.run(
-            [sys.executable, temp_filename], 
-            capture_output=True, 
-            text=True, 
-            timeout=15, # Increased timeout for potentially complex code
-            check=False 
-        )
-        
-        if proc.returncode != 0:
-            # If there's a non-zero exit code, we treat it as an error
-            return f"Error executing code:\nExit Code: {proc.returncode}\n--- STDOUT ---\n{proc.stdout}\n--- STDERR ---\n{proc.stderr}"
-        
-        return proc.stdout
-
-    finally:
-        import os
-        os.unlink(temp_filename)
 
 def handle_query(user_query: str) -> dict:
     """
-    Handles a user query by retrieving relevant APIs, generating code,
-    executing it, and retrying on failure.
+    Orchestrates the new MCP adapter flow:
+    1. Find an MCP server using RAG.
+    2. Generate a Dockerfile for it using an LLM.
+    3. Attempt to build and run it using the Execution Manager.
+    4. On build failure, use the LLM to self-correct the Dockerfile.
     """
-    print(f"\n--- Handling query: {user_query} ---")
-    
-    # 1. Retrieve relevant API documentation
+    print(f"\n--- Handling MCP request: '{user_query}' ---")
+
+    # 1. RAG Retrieval
     try:
-        retrieved_docs = rag.retrieve(user_query)
+        retrieved_docs = rag.retrieve(user_query, k=1) # Get the single best match
         if not retrieved_docs:
-            return {"error": "Could not find any relevant API documentation."}
+            return {"status": "error", "message": "Could not find a relevant MCP server."}
+        server_doc = retrieved_docs[0]
+        server_name = server_doc.get('name', 'unknown-server')
     except Exception as e:
-        print(f"Error during RAG retrieval: {e}")
-        return {"error": f"Failed to retrieve API docs: {e}"}
+        return {"status": "error", "message": f"RAG retrieval failed: {e}"}
 
-    # 2. Generate initial code
+    # 2. Initial Deployment Package Generation
     try:
-        code = llm.generate_code(user_query, retrieved_docs)
+        deployment_files = llm.generate_deployment_package(user_query, retrieved_docs)
     except Exception as e:
-        print(f"Error during code generation: {e}")
-        return {"error": f"Failed to generate code: {e}"}
+        return {"status": "error", "message": f"Failed to generate initial deployment package: {e}"}
 
-    # 3. Execute code with retry logic
-    output = ""
+    # 3. Execution Loop with Retry - accumulate error history
+    error_history = []
+    
     for attempt in range(MAX_RETRIES + 1):
-        print(f"--- Attempt {attempt + 1} ---\nGenerated Code:\n{code}\n---")
-        output = run_code(code)
-        
-        # Check if the output indicates an error
-        if "Error executing code:" not in output:
-            print("--- Code executed successfully ---")
-            return {"code": code, "result": output}
-        
-        # If it's the last attempt, return the error
-        if attempt >= MAX_RETRIES:
-            print("--- Max retries reached. Returning last error. ---")
-            break
+        print(f"--- Build Attempt {attempt + 1} for {server_name} ---")
 
-        # If there's an error, try to fix the code
-        try:
-            code = llm.generate_code_with_retry(
-                old_code=code, 
-                error=output, 
-                user_query=user_query,
-                retrieved_docs=retrieved_docs
-            )
-        except Exception as e:
-            print(f"Error during code retry generation: {e}")
-            return {"error": f"Failed to generate retry code: {e}", "code": code, "result": output}
+        with execution_manager.build_and_run_mcp_server(deployment_files, server_name) as (url, logs, status):
 
-    # After loop, return the last result (which will be an error)
-    return {"code": code, "result": output} 
+            if status == "success":
+                return {
+                    "status": "success",
+                    "server_name": server_name,
+                    "message": f"MCP server successfully deployed and is running.",
+                    "connection_url": url,
+                    "deployment_files": deployment_files,
+                    "logs": logs,
+                    "attempts": attempt + 1
+                }
+
+            # Record this failure in our history
+            error_entry = {
+                "attempt": attempt + 1,
+                "deployment_files": deployment_files,
+                "error": logs,
+                "status": status
+            }
+            error_history.append(error_entry)
+
+            # If we have retries left, try to fix the Dockerfile
+            if attempt < MAX_RETRIES:
+                print(f"--- Attempt {attempt + 1} failed. Attempting to self-correct... ---")
+                
+                # Create comprehensive error context for the LLM
+                error_context = f"Attempt {attempt + 1} failed with status '{status}':\n{logs}"
+                if len(error_history) > 1:
+                    error_context += f"\n\nPrevious failure history:"
+                    for i, prev_error in enumerate(error_history[:-1], 1):
+                        error_context += f"\n--- Previous Attempt {prev_error['attempt']} ---"
+                        error_context += f"\nStatus: {prev_error['status']}"
+                        error_context += f"\nError: {prev_error['error'][:500]}..."  # Truncate for brevity
+                
+                try:
+                    deployment_files = llm.generate_deployment_package_with_retry(
+                        old_deployment_files=deployment_files,
+                        error=error_context,
+                        user_query=user_query,
+                        retrieved_docs=retrieved_docs,
+                        error_history=[e["error"] for e in error_history[:-1]]  # Pass previous errors
+                    )
+                except Exception as e:
+                    return {
+                        "status": "failed",
+                        "server_name": server_name,
+                        "message": f"Failed to generate retry deployment package: {e}",
+                        "error_details": logs,
+                        "deployment_files": deployment_files,
+                        "error_history": error_history
+                    }
+                continue # Go to the next attempt in the loop
+
+            # If it's the last retry, return comprehensive failure info
+            return {
+                "status": "failed",
+                "server_name": server_name,
+                "message": f"Failed to deploy MCP server after {MAX_RETRIES + 1} attempts.",
+                "error_details": logs,
+                "deployment_files": deployment_files,
+                "error_history": error_history,
+                "total_attempts": attempt + 1
+            } 

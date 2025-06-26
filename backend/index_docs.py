@@ -1,103 +1,74 @@
 import os
-import glob
-import yaml
-import json
+import openai
+from pinecone import Pinecone
 from dotenv import load_dotenv
+from db_models import McpServerDoc
+from mcp_scraper import get_mcp_servers
 
 # Load environment variables at the top of the script
 # This ensures they are available before other modules are imported.
 load_dotenv()
 
-from pinecone import Pinecone
-from rag import get_embedding
-from db_models import ApiDoc
+# --- Configuration ---
+PINECONE_INDEX_NAME = "mcp-rag-mvp"
+PINECONE_API_KEY = os.environ["PINECONE_API_KEY"]
+OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
+EMBEDDING_MODEL = "text-embedding-3-small"
+EMBEDDING_DIMENSION = 1536
+
+# --- Client Initialization ---
+pc = Pinecone(api_key=PINECONE_API_KEY)
+openai_client = openai.OpenAI(api_key=OPENAI_API_KEY)
+
+def get_embedding(text: str) -> list[float]:
+    response = openai_client.embeddings.create(input=[text.replace("\n", " ")], model=EMBEDDING_MODEL)
+    return response.data[0].embedding
 
 def main():
-    """
-    One-time script to parse, validate, and embed API documentation,
-    then upsert it into Pinecone.
-    """
-    print("Environment variables loaded.")
+    print("--- Starting MCP Server Indexing MVP ---")
 
-    # --- Pinecone Initialization ---
-    try:
-        api_key = os.environ["PINECONE_API_KEY"]
-        index_name = "api-rag"
-        
-        pc = Pinecone(api_key=api_key)
-        
-        if index_name not in pc.list_indexes().names():
-            print(f"Creating Pinecone index '{index_name}'...")
-            pc.create_index(
-                name=index_name,
-                dimension=1536,
-                metric="cosine",
-                spec={"serverless": {"cloud": "aws", "region": "us-east-1"}}
-            )
-            print("Index created successfully.")
-        else:
-            print(f"Index '{index_name}' already exists.")
-            
-        index = pc.Index(index_name)
-        
-    except Exception as e:
-        print(f"Error initializing Pinecone: {e}")
+    # 1. Ensure Pinecone index exists
+    if PINECONE_INDEX_NAME not in pc.list_indexes().names():
+        print(f"Creating new Pinecone index: '{PINECONE_INDEX_NAME}'")
+        pc.create_index(
+            name=PINECONE_INDEX_NAME, 
+            dimension=EMBEDDING_DIMENSION,
+            metric="cosine",
+            spec={"serverless": {"cloud": "aws", "region": "us-east-1"}}
+        )
+    pinecone_index = pc.Index(PINECONE_INDEX_NAME)
+
+    # 2. Get server data from our MVP scraper
+    servers_data = get_mcp_servers()
+    if not servers_data:
+        print("No server data found. Exiting.")
         return
 
-    # --- Document Processing and Upserting ---
-    docs_path = os.path.join(os.path.dirname(__file__), 'api_docs', '*.md')
-    markdown_files = glob.glob(docs_path)
-    
-    if not markdown_files:
-        print(f"No markdown files found in {os.path.dirname(docs_path)}. Nothing to index.")
-        return
-
-    print(f"Found {len(markdown_files)} documents to process.")
-    
+    # 3. Process and upsert data
     vectors_to_upsert = []
-    for file_path in markdown_files:
-        vector_id = os.path.basename(file_path).replace('.md', '')
-        print(f"  - Processing {vector_id}...")
+    for server_data in servers_data:
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                # The first part of the file is YAML front matter
-                yaml_content = f.read().strip('--- \n')
-                doc_data = yaml.safe_load(yaml_content)
+            mcp_doc = McpServerDoc(**server_data)
+            vector_id = mcp_doc.name
+            print(f"  - Processing: {vector_id}")
 
-            # Validate data with Pydantic model
-            api_doc = ApiDoc(**doc_data)
-            
-            # Generate embedding from the description only
-            embedding = get_embedding(api_doc.description)
-            
-            # Prepare the structured metadata
-            metadata = api_doc.model_dump()
-
-            # --- FIX: Serialize the 'examples' list to a JSON string ---
-            if 'examples' in metadata and isinstance(metadata['examples'], list):
-                metadata['examples'] = json.dumps(metadata['examples'])
+            embedding = get_embedding(mcp_doc.description)
+            metadata = mcp_doc.dict()
 
             vectors_to_upsert.append({
                 "id": vector_id,
                 "values": embedding,
                 "metadata": metadata
             })
-            print(f"    - Validation and embedding successful.")
-            
         except Exception as e:
-            print(f"    - Error processing file {file_path}: {e}")
+            print(f"    - ERROR processing {server_data.get('name', 'N/A')}: {e}")
 
-    # --- Batch Upsert to Pinecone ---
     if vectors_to_upsert:
-        print("\nUpserting vectors to Pinecone...")
-        try:
-            index.upsert(vectors=vectors_to_upsert)
-            print(f"  - Successfully upserted {len(vectors_to_upsert)} vectors.")
-        except Exception as e:
-            print(f"    - Error upserting vectors: {e}")
-        print("\nIndexing complete!")
+        print(f"\nUpserting {len(vectors_to_upsert)} vectors to '{PINECONE_INDEX_NAME}'...")
+        pinecone_index.upsert(vectors=vectors_to_upsert)
+        print("--- Indexing complete! ---")
     else:
-        print("No valid vectors were generated. Nothing to upsert.")
+        print("No valid vectors were generated.")
 
 if __name__ == "__main__":
     main() 

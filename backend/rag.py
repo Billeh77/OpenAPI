@@ -7,7 +7,7 @@ from pinecone import Pinecone
 try:
     pc = Pinecone(api_key=os.environ["PINECONE_API_KEY"])
     openai_client = openai.OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-    pinecone_index = pc.Index("api-rag")
+    pinecone_index = pc.Index("mcp-rag-mvp")
 except Exception as e:
     pc = None
     openai_client = None
@@ -44,16 +44,7 @@ def retrieve(query: str, k: int = 2) -> list[dict]:
         return []
         
     # The full, structured document is now in the metadata
-    retrieved_docs = []
-    for match in results['matches']:
-        metadata = match['metadata']
-        if 'examples' in metadata and isinstance(metadata['examples'], str):
-            try:
-                metadata['examples'] = json.loads(metadata['examples'])
-            except json.JSONDecodeError:
-                print(f"Warning: Could not decode 'examples' JSON for doc {metadata.get('name')}")
-                metadata['examples'] = []
-        retrieved_docs.append(metadata)
+    retrieved_docs = [match['metadata'] for match in results['matches']]
 
     print(f"Retrieved docs: {[doc.get('name', 'N/A') for doc in retrieved_docs]}")
     

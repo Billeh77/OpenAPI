@@ -6,4 +6,5 @@ python-dotenv
 openai
 anthropic
 pinecone
-pyyaml 
+pyyaml
+docker 
