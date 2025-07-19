@@ -2,7 +2,7 @@
 
 This project is a proof-of-concept for an "API for APIs". It's a full-stack application with a FastAPI backend and a React frontend that allows a user to make natural language queries, which are then translated into live API calls by an agentic backend.
 
-## 🚀 How to Run the Project
+## How to Run the Project
 
 You will need two separate terminal windows to run both the backend server and the frontend application.
 
@@ -48,7 +48,7 @@ Once both servers are running, open your web browser and navigate to:
 
 You should see the chat interface, ready to accept your queries!
 
-## 💡 Example Queries
+## Example Queries
 
 Try asking things like:
 - "What's the weather in New York?" or "weather in 52.5, 13.4"
